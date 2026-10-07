@@ -1,0 +1,22 @@
+# Local configuration (contains ARI credentials)
+config.json
+.env
+.env.*
+
+# Dependencies
+node_modules/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp

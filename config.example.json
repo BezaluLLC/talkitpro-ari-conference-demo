@@ -1,0 +1,20 @@
+{
+  "port": 3000,
+
+  "ari": {
+    "url": "http://pbx.example.com:8088",
+    "username": "confdemo",
+    "password": "change-me",
+    "app": "conf-demo"
+  },
+
+  "tenant": "100",
+  "endpoints": {
+    "internal": "Local/{number}@t-{tenant}",
+    "external": "Local/{number}@t-{tenant}"
+  },
+
+  "callerId": "\"Conference Demo\" <1000>",
+  "dialTimeout": 30,
+  "ringbackMedia": "tone:ring;tonezone=us"
+}

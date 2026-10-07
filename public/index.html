@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ARI Conference Demo</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #ffffff; --text: #1b1f24; --muted: #667080; --border: #dde1e7;
+    --accent: #2563eb; --accent-text: #ffffff; --danger: #dc2626; --ok: #16a34a; --warn: #d97706;
+    --log-bg: #0f1720; --log-text: #cfd8e3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1116; --panel: #161b22; --text: #e6edf3; --muted: #8b96a5; --border: #2a313c;
+      --accent: #3b82f6; --log-bg: #0a0d12; --log-text: #b8c4d2;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 48px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 10px;
+          border-radius: 999px; border: 1px solid var(--border); background: var(--panel); white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.on { background: var(--ok); } .dot.off { background: var(--danger); }
+
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+            padding: 16px; margin-top: 16px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 12px; }
+
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  label { font-size: 13px; color: var(--muted); display: block; margin-bottom: 4px; }
+  input { font: inherit; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border);
+          background: var(--bg); color: var(--text); min-width: 0; flex: 1 1 160px; }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button { font: inherit; font-weight: 600; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--border);
+           background: var(--panel); color: var(--text); cursor: pointer; white-space: nowrap; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  button.danger { color: var(--danger); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+
+  .start-grid { display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: end; }
+  @media (max-width: 620px) { .start-grid { grid-template-columns: 1fr; } }
+
+  .bridge-meta { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+  .bridge-meta b { color: var(--text); font-weight: 600; }
+
+  .leg { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 10px; }
+  .leg-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .leg-title { font-weight: 600; }
+  .leg-info { font-size: 13px; color: var(--muted); margin-top: 8px; min-height: 1.2em; word-break: break-all; }
+  .status { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--bg); color: var(--muted); }
+  .status.dialing, .status.ringing { color: var(--warn); }
+  .status.answered, .status.in-conference { color: var(--ok); }
+  .status.failed { color: var(--danger); }
+
+  .history { font-size: 13px; color: var(--muted); margin: 8px 0 0; padding-left: 18px; }
+  .history:empty::before { content: "No finished legs yet."; margin-left: -18px; }
+
+  .log { background: var(--log-bg); color: var(--log-text); border-radius: 8px; padding: 10px 12px; height: 260px;
+         overflow-y: auto; font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+  .log div { white-space: pre-wrap; word-break: break-word; }
+  .log .ts { color: #6b7785; }
+  .log .k-action { color: #7cb7ff; } .log .k-error { color: #ff8b8b; } .log .k-system { color: #9be59b; }
+
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: calc(100% - 32px);
+           background: var(--danger); color: #fff; padding: 10px 14px; border-radius: 8px; font-size: 14px;
+           opacity: 0; pointer-events: none; transition: opacity .2s; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>ARI Conference Demo</h1>
+      <div class="sub" id="target">PBXware · Asterisk REST Interface</div>
+    </div>
+    <span class="pill"><span class="dot" id="ari-dot"></span><span id="ari-label">Connecting…</span></span>
+  </header>
+
+  <!-- Shown when no conference is running -->
+  <section id="start-panel">
+    <h2>Start a conference</h2>
+    <div class="start-grid">
+      <div><label for="start-internal">Internal extension</label>
+        <input id="start-internal" inputmode="tel" placeholder="e.g. 1001" style="width:100%"></div>
+      <div><label for="start-external">External number</label>
+        <input id="start-external" inputmode="tel" placeholder="e.g. +15551234567" style="width:100%"></div>
+      <button class="primary" id="start-btn">Start conference</button>
+    </div>
+    <div class="leg-info">Creates a mixing bridge, calls the extension, and dials the external number once the extension has joined.</div>
+  </section>
+
+  <!-- Shown while a conference is running -->
+  <section id="conf-panel" hidden>
+    <h2>Conference</h2>
+    <div class="bridge-meta">
+      <span>Bridge <b id="bridge-id">–</b></span>
+      <span>Running <b id="bridge-elapsed">0:00</b></span>
+      <span>In room <b id="bridge-count">0</b></span>
+    </div>
+
+    <div class="leg" data-role="internal">
+      <div class="leg-head"><span class="leg-title">Internal extension</span><span class="status">idle</span></div>
+      <div class="row">
+        <input inputmode="tel" placeholder="Extension">
+        <button class="primary" data-act="dial">Call</button>
+        <button class="danger" data-act="hangup">Hang up</button>
+      </div>
+      <div class="leg-info"></div>
+    </div>
+
+    <div class="leg" data-role="external">
+      <div class="leg-head"><span class="leg-title">External number</span><span class="status">idle</span></div>
+      <div class="row">
+        <input inputmode="tel" placeholder="Number to dial">
+        <button class="primary" data-act="dial">Dial</button>
+        <button class="danger" data-act="hangup">Hang up</button>
+      </div>
+      <div class="leg-info"></div>
+    </div>
+
+    <div class="row" style="margin-top:14px; justify-content:flex-end">
+      <button class="danger" id="end-btn">End conference</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Previous legs</h2>
+    <ol class="history" id="history"></ol>
+  </section>
+
+  <section>
+    <h2>Event log</h2>
+    <div class="log" id="log"></div>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (sel, el = document) => el.querySelector(sel);
+let state = null;
+
+// ---- API -------------------------------------------------------------------
+async function api(path, body) {
+  try {
+    const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(body || {}) });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || json.ok === false) throw new Error(json.error || res.statusText);
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+$('#start-btn').onclick = () =>
+  api('/api/start', { internal: $('#start-internal').value, external: $('#start-external').value });
+$('#end-btn').onclick = () => api('/api/end');
+
+for (const legEl of document.querySelectorAll('.leg')) {
+  const role = legEl.dataset.role;
+  const input = $('input', legEl);
+  const dial = () => api('/api/dial', { role, number: input.value });
+  $('[data-act=dial]', legEl).onclick = dial;
+  $('[data-act=hangup]', legEl).onclick = () => api('/api/hangup', { role });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') dial(); });
+}
+for (const id of ['#start-internal', '#start-external']) {
+  $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#start-btn').click(); });
+}
+
+// ---- Live updates ----------------------------------------------------------
+const es = new EventSource('/api/events');
+es.addEventListener('config', (e) => {
+  const c = JSON.parse(e.data);
+  $('#target').textContent = `PBXware · ARI ${c.ari} · app "${c.app}"` + (c.tenant ? ` · tenant ${c.tenant}` : '');
+});
+es.addEventListener('state', (e) => { state = JSON.parse(e.data); render(); });
+es.addEventListener('log', (e) => appendLog(JSON.parse(e.data)));
+es.onerror = () => { $('#ari-dot').className = 'dot off'; $('#ari-label').textContent = 'Demo server unreachable'; };
+
+const STATUS_TEXT = {
+  dialing: 'dialing', ringing: 'ringing', answered: 'answered',
+  'in-conference': 'in conference', ended: 'ended', failed: 'failed',
+};
+const live = (leg) => leg && !leg.endedAt;
+
+function render() {
+  const on = state.ariConnected;
+  $('#ari-dot').className = 'dot ' + (on ? 'on' : 'off');
+  $('#ari-label').textContent = on ? 'ARI connected' : 'ARI disconnected';
+
+  const active = !!state.bridge;
+  $('#start-panel').hidden = active;
+  $('#conf-panel').hidden = !active;
+  $('#start-btn').disabled = !on;
+
+  if (active) {
+    $('#bridge-id').textContent = state.bridge.id;
+    const inRoom = Object.values(state.legs).filter((l) => live(l) && l.status === 'in-conference').length;
+    $('#bridge-count').textContent = inRoom;
+  }
+
+  for (const legEl of document.querySelectorAll('.leg')) {
+    const leg = state.legs[legEl.dataset.role];
+    const status = $('.status', legEl);
+    status.className = 'status ' + (leg ? leg.status : '');
+    status.textContent = leg ? STATUS_TEXT[leg.status] || leg.status : 'idle';
+    $('[data-act=hangup]', legEl).disabled = !live(leg);
+    $('[data-act=dial]', legEl).disabled = !on;
+    // Prefill the input with the current number the first time we see the leg.
+    const input = $('input', legEl);
+    if (leg && input.dataset.legId !== leg.id) {
+      input.dataset.legId = leg.id;
+      if (!input.value || document.activeElement !== input) input.value = leg.number;
+    }
+  }
+
+  $('#history').innerHTML = state.history.map((l) =>
+    `<li><b>${esc(l.role)}</b> ${esc(l.number)} — ${esc(l.status)}${l.cause ? ' (' + esc(l.cause) + ')' : ''}` +
+    `${l.answeredAt ? ', talked ' + dur(l.endedAt - l.answeredAt) : ''}</li>`).join('');
+
+  tick();
+}
+
+// Durations update every second without waiting for a server event.
+function tick() {
+  if (!state) return;
+  if (state.bridge) $('#bridge-elapsed').textContent = dur(Date.now() - state.bridge.createdAt);
+  for (const legEl of document.querySelectorAll('.leg')) {
+    const leg = state.legs[legEl.dataset.role];
+    let info = '';
+    if (leg) {
+      info = `${leg.endpoint}`;
+      if (live(leg) && leg.answeredAt) info += ` · connected ${dur(Date.now() - leg.answeredAt)}`;
+      else if (live(leg)) info += ` · ${dur(Date.now() - leg.startedAt)}`;
+      else if (leg.cause) info += ` · ${leg.cause}`;
+    }
+    $('.leg-info', legEl).textContent = info;
+  }
+}
+setInterval(tick, 1000);
+
+function appendLog(entry) {
+  const el = $('#log');
+  const stick = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
+  const line = document.createElement('div');
+  line.innerHTML = `<span class="ts">${new Date(entry.ts).toLocaleTimeString()}</span> ` +
+                   `<span class="k-${entry.kind}">${esc(entry.text)}</span>`;
+  el.appendChild(line);
+  while (el.childElementCount > 300) el.firstChild.remove();
+  if (stick) el.scrollTop = el.scrollHeight;
+}
+
+function dur(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = String(s % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${r}` : `${m}:${r}`;
+}
+function esc(s) { return String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`); }
+
+let toastTimer;
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 4000);
+}
+</script>
+</body>
+</html>
