@@ -111,26 +111,38 @@ async function ari(method, urlPath, query = {}) {
 // ---------------------------------------------------------------------------
 
 let warnedDown = false;
+let reconnectAttempt = 0;
+
+// Events are handled one at a time in arrival order. ARI delivers a channel's
+// events serially, and handlers await REST calls, so running them
+// concurrently could apply a later event before an earlier one finishes.
+let eventQueue = Promise.resolve();
+function enqueue(label, fn) {
+  eventQueue = eventQueue.then(fn).catch((e) => log('error', `${label}: ${e.message}`));
+}
 
 function connectEvents() {
   const wsUrl = new URL(`${ARI_BASE.replace(/^http/, 'ws')}/ari/events`);
   wsUrl.searchParams.set('app', APP);
-  wsUrl.searchParams.set('api_key', `${cfg.ari.username}:${cfg.ari.password}`);
   wsUrl.searchParams.set('subscribeAll', 'false');
 
-  const ws = new WebSocket(wsUrl.toString());
+  // Credentials go in the Authorization header, not the URL, so they stay out
+  // of server and proxy logs. Node's WebSocket accepts headers as a non-standard option.
+  const ws = new WebSocket(wsUrl.toString(), { headers: { Authorization: AUTH } });
 
   ws.addEventListener('open', () => {
     state.ariConnected = true;
     warnedDown = false;
+    reconnectAttempt = 0;
     log('system', `ARI WebSocket connected, Stasis app "${APP}" registered`);
     broadcastState();
+    if (state.bridge) enqueue('Reconciling after reconnect', reconcile);
   });
 
   ws.addEventListener('message', (msg) => {
     let evt;
     try { evt = JSON.parse(msg.data); } catch { return; }
-    handleEvent(evt).catch((e) => log('error', `Handling ${evt.type}: ${e.message}`));
+    enqueue(`Handling ${evt.type}`, () => handleEvent(evt));
   });
 
   // A failed connect may fire only 'error' (no 'close'), so treat either as
@@ -142,11 +154,13 @@ function connectEvents() {
     if (!warnedDown) {
       warnedDown = true;
       const what = state.ariConnected ? 'closed' : 'could not connect';
-      log('error', `ARI WebSocket ${what} (${ARI_BASE}): ${await diagnoseConnection()}. Retrying every 3s`);
+      log('error', `ARI WebSocket ${what} (${ARI_BASE}): ${await diagnoseConnection()}. Retrying with backoff`);
     }
     state.ariConnected = false;
     broadcastState();
-    setTimeout(connectEvents, 3000);
+    // Exponential backoff: 1s, 2s, 4s ... capped at 30s.
+    const delay = Math.min(30000, 1000 * 2 ** reconnectAttempt++);
+    setTimeout(connectEvents, delay);
   };
   ws.addEventListener('close', onDown);
   ws.addEventListener('error', onDown);
@@ -166,6 +180,29 @@ async function diagnoseConnection() {
     if (/WRONG_VERSION_NUMBER/i.test(detail)) return 'this port speaks plain HTTP, use http:// instead of https://';
     return `cannot reach server: ${detail}`;
   }
+}
+
+// Events sent while the WebSocket was down are lost, so after a reconnect
+// check with ARI which of our channels and bridge still exist and drop the rest.
+async function reconcile() {
+  const exists = (path) => ari('GET', path).then(() => true, (e) => {
+    if (e.status === 404) return false;
+    throw e;
+  });
+  for (const leg of [...legsById.values()]) {
+    if (!(await exists(`/channels/${leg.id}`))) {
+      log('system', `${leg.role} ${leg.number} ended while ARI was disconnected`);
+      endLeg(leg, leg.answeredAt ? 'ended' : 'failed', 'lost during ARI disconnect');
+    }
+  }
+  if (state.bridge && !(await exists(`/bridges/${state.bridge.id}`))) {
+    log('system', `Bridge ${state.bridge.id} no longer exists, conference closed`);
+    state.bridge = null;
+    ringback = null;
+    pendingExternal = null;
+  }
+  log('system', 'Reconciled conference state with ARI');
+  broadcastState();
 }
 
 async function handleEvent(evt) {

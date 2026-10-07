@@ -20,7 +20,9 @@ and a live log of ARI events.
 ## How it works
 
 The server registers a Stasis application over the ARI WebSocket and holds the ARI
-credentials. The page only talks to the server: it sends commands to `/api/*` and receives
+credentials. It authenticates with an `Authorization: Basic` header on both the WebSocket and
+REST requests, so credentials never appear in URLs. ARI events are handled one at a time,
+in the order they arrive. The page only talks to the server: it sends commands to `/api/*` and receives
 state updates as Server-Sent Events. The ARI credentials never reach the browser, and
 Asterisk needs no CORS configuration.
 
@@ -106,6 +108,7 @@ startup.
 - One conference at a time.
 - State is held in memory. Restarting the server loses track of the conference; stopping it
   with Ctrl+C hangs up all participants first.
-- If the ARI WebSocket disconnects, the server reconnects every 3 seconds. Calls in progress
-  continue, but events during the outage are lost.
+- If the ARI WebSocket disconnects, the server reconnects with exponential backoff (1 second,
+  doubling up to 30 seconds). Events sent during the outage are lost, so after reconnecting the
+  server asks ARI which of its calls and its bridge still exist and drops the rest.
 - Calls entering the Stasis application from elsewhere are logged and otherwise ignored.
